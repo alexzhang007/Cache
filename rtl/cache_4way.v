@@ -45,6 +45,8 @@ wire [`ADDR_W-1:0]  iAddr;
 reg  [`DATA_W-1:0]  oData;
 reg  [`WAY_W-1:0]   rWay;
 reg  [`TAG_W-1:0]   rTag;
+reg  [`TAG_W-1:0]   ppTag;
+reg  [`TAG_W-1:0]   pp2Tag;
 reg  [`INDEX_W-1:0] rIndex;
 reg  [`BYTE_W-1:0]  rByte;
 reg  [`RESV_W-1:0]  rResv;
@@ -140,7 +142,11 @@ always @(posedge clk or negedge resetn) begin
         ppData        <= 32'b0;
         pp2Data       <= 32'b0;
         pp3Data       <= 32'b0;
+        ppTag         <= 20'h0;
+        pp2Tag        <= 20'h0;
     end else begin 
+        ppTag         <= rTag;
+        pp2Tag        <= ppTag;
         rEnWay0       <= iRd | iWr ;  //If | rHit0 is added here, there will be another cycle delay.
         rAddrWay0     <= rIndex;
         rEnWay1       <= iRd | iWr ; 
@@ -151,10 +157,10 @@ always @(posedge clk or negedge resetn) begin
         rAddrWay3     <= rIndex;
         rEnLRU        <= iRd | iWr | pp2LRU_Ready;
         rAddrLRU      <= rIndex;
-        rHit0         <= (pp1LRU_Ready & (wDataWay0Tag[`TAG_W+1-1:1] == rTag ) & wDataWay0Tag[0]) ? 1'b1 : 1'b0;
-        rHit1         <= (pp1LRU_Ready & (wDataWay1Tag[`TAG_W+1-1:1] == rTag ) & wDataWay1Tag[0]) ? 1'b1 : 1'b0;
-        rHit2         <= (pp1LRU_Ready & (wDataWay2Tag[`TAG_W+1-1:1] == rTag ) & wDataWay2Tag[0]) ? 1'b1 : 1'b0;
-        rHit3         <= (pp1LRU_Ready & (wDataWay3Tag[`TAG_W+1-1:1] == rTag ) & wDataWay3Tag[0]) ? 1'b1 : 1'b0;
+        rHit0         <= (pp1LRU_Ready & (wDataWay0Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay0Tag[0]) ? 1'b1 : 1'b0;
+        rHit1         <= (pp1LRU_Ready & (wDataWay1Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay1Tag[0]) ? 1'b1 : 1'b0;
+        rHit2         <= (pp1LRU_Ready & (wDataWay2Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay2Tag[0]) ? 1'b1 : 1'b0;
+        rHit3         <= (pp1LRU_Ready & (wDataWay3Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay3Tag[0]) ? 1'b1 : 1'b0;
         ppReady       <= {iRd , iWr};
         pp1Ready      <= ppReady;
         pp2Ready      <= pp1Ready;
@@ -260,6 +266,10 @@ always @(*) begin
          rWrWay1     = 1'b0;
          rWrWay2     = 1'b0;
          rWrWay3     = 1'b0;
+         rWrWay0Tag  = 1'b0;
+         rWrWay1Tag  = 1'b0;
+         rWrWay2Tag  = 1'b0;
+         rWrWay3Tag  = 1'b0;
     end 
 end 
 //Update the LRU module 
@@ -359,33 +369,33 @@ end
 //FIXME: Should fetch the memory and write back. here we just test.  
 always @(*) begin 
      if (pp2LRU_Ready & wMiss) begin 
-         rWrByte0 = (rByte==3'b000) ? iData : 32'b0;
-         rWrByte1 = (rByte==3'b001) ? iData : 32'b0;  
-         rWrByte2 = (rByte==3'b010) ? iData : 32'b0;  
-         rWrByte3 = (rByte==3'b011) ? iData : 32'b0;  
-         rWrByte4 = (rByte==3'b100) ? iData : 32'b0;  
-         rWrByte5 = (rByte==3'b101) ? iData : 32'b0;  
-         rWrByte6 = (rByte==3'b110) ? iData : 32'b0;  
-         rWrByte7 = (rByte==3'b111) ? iData : 32'b0; 
+         rWrByte0 = (rByte==3'b000) ? pp3Data : 32'b0;
+         rWrByte1 = (rByte==3'b001) ? pp3Data : 32'b0;  
+         rWrByte2 = (rByte==3'b010) ? pp3Data : 32'b0;  
+         rWrByte3 = (rByte==3'b011) ? pp3Data : 32'b0;  
+         rWrByte4 = (rByte==3'b100) ? pp3Data : 32'b0;  
+         rWrByte5 = (rByte==3'b101) ? pp3Data : 32'b0;  
+         rWrByte6 = (rByte==3'b110) ? pp3Data : 32'b0;  
+         rWrByte7 = (rByte==3'b111) ? pp3Data : 32'b0; 
          if (~wDataWay0Tag[0]) begin 
              rWrDataWay0 = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
              rWrWay0     = 1'b1;
-             rWrDataWay0Tag = {rTag,1'b1};
+             rWrDataWay0Tag = {pp2Tag,1'b1};
              rWrWay0Tag  = 1'b1;
          end else if (~wDataWay1Tag[0]) begin 
              rWrDataWay1 = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
              rWrWay1     = 1'b1;
-             rWrDataWay1Tag = {rTag, 1'b1};
+             rWrDataWay1Tag = {pp2Tag, 1'b1};
              rWrWay1Tag  = 1'b1;
          end else if (~wDataWay2Tag[0]) begin 
              rWrDataWay2 = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
              rWrWay2     = 1'b1;
-             rWrDataWay2Tag = {rTag, 1'b1};
+             rWrDataWay2Tag = {pp2Tag, 1'b1};
              rWrWay2Tag  = 1'b1;
          end else if (~wDataWay3Tag[0]) begin 
              rWrDataWay3 = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
              rWrWay3     = 1'b1;
-             rWrDataWay3Tag = {rTag, 1'b1};
+             rWrDataWay3Tag = {pp2Tag, 1'b1};
              rWrWay3Tag  = 1'b1;
          end else begin //Look aside the LRU
              if (rDataLRUOut[1:0] ==2'b00)  begin 
@@ -395,7 +405,7 @@ always @(*) begin
                 rDataLRUIn[1:0] = 2'b11;
                 rWrDataWay0     = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
                 rWrWay0         = 1'b1;
-                rWrDataWay0Tag  = {rTag, 1'b1};
+                rWrDataWay0Tag  = {pp2Tag, 1'b1};
                 rWrWay0Tag      = 1'b1;
              end else if (rDataLRUOut[3:2] ==2'b00) begin 
                 rDataLRUIn[7:6] = rDataLRUOut[7:6] -1;
@@ -404,7 +414,7 @@ always @(*) begin
                 rDataLRUIn[1:0] = rDataLRUOut[1:0] -1;
                 rWrDataWay1     = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
                 rWrWay1         = 1'b1;
-                rWrDataWay1Tag  = {rTag, 1'b1};
+                rWrDataWay1Tag  = {pp2Tag, 1'b1};
                 rWrWay1Tag      = 1'b1;
              end else if (rDataLRUOut[5:4] ==2'b00) begin 
                 rDataLRUIn[7:6] = rDataLRUOut[7:6] -1;
@@ -413,7 +423,7 @@ always @(*) begin
                 rDataLRUIn[1:0] = rDataLRUOut[1:0] -1;
                 rWrDataWay2     = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
                 rWrWay2         = 1'b1;
-                rWrDataWay2Tag  = {rTag, 1'b1};
+                rWrDataWay2Tag  = {pp2Tag, 1'b1};
                 rWrWay2Tag      = 1'b1;
              end else if (rDataLRUOut[7:6] ==2'b00) begin 
                 rDataLRUIn[7:6] = 2'b11;
@@ -422,7 +432,7 @@ always @(*) begin
                 rDataLRUIn[1:0] = rDataLRUOut[1:0] -1;
                 rWrDataWay3     = {rWrByte7,rWrByte6,rWrByte5,rWrByte4,rWrByte3,rWrByte2,rWrByte1,rWrByte0};
                 rWrWay3         = 1'b1;
-                rWrDataWay3Tag  = {rTag, 1'b1};
+                rWrDataWay3Tag  = {pp2Tag, 1'b1};
                 rWrWay3Tag      = 1'b1;
              end
          end 
@@ -432,7 +442,7 @@ end
 //Data Cache line is 256 bit
 ssram #(.AW(`INDEX_W), .DW(`CL_W)) way0_data_ram (
   .clk(clk),
-  .iEnable(rEnWay0 | rHit0),
+  .iEnable(rEnWay0 | pp2Ready[0]),
   .iWr(rWrWay0),
   .iAddr(rAddrWay0),
   .iData(rWrDataWay0),
@@ -440,7 +450,7 @@ ssram #(.AW(`INDEX_W), .DW(`CL_W)) way0_data_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`CL_W)) way1_data_ram (
   .clk(clk),
-  .iEnable(rEnWay1 | rHit1),
+  .iEnable(rEnWay1 | pp2Ready[0]),
   .iWr(rWrWay1),
   .iAddr(rAddrWay1),
   .iData(rWrDataWay1),
@@ -448,7 +458,7 @@ ssram #(.AW(`INDEX_W), .DW(`CL_W)) way1_data_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`CL_W)) way2_data_ram (
   .clk(clk),
-  .iEnable(rEnWay2 | rHit2),
+  .iEnable(rEnWay2 | pp2Ready[0]),
   .iWr(rWrWay2),
   .iAddr(rAddrWay2),
   .iData(rWrDataWay2),
@@ -456,7 +466,7 @@ ssram #(.AW(`INDEX_W), .DW(`CL_W)) way2_data_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`CL_W)) way3_data_ram (
   .clk(clk),
-  .iEnable(rEnWay3 | rHit3),
+  .iEnable(rEnWay3 | pp2Ready[0]),
   .iWr(rWrWay3),
   .iAddr(rAddrWay3),
   .iData(rWrDataWay3),
@@ -467,7 +477,7 @@ ssram #(.AW(`INDEX_W), .DW(`CL_W)) way3_data_ram (
 //Tag+Valid is Data of Tag TLB
 ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way0_tag_ram (
   .clk(clk),
-  .iEnable(rEnWay0),
+  .iEnable(rEnWay0 | pp2Ready[0]),
   .iWr(rWrWay0Tag),
   .iAddr(rAddrWay0),
   .iData(rWrDataWay0Tag),
@@ -475,7 +485,7 @@ ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way0_tag_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way1_tag_ram (
   .clk(clk),
-  .iEnable(rEnWay1),
+  .iEnable(rEnWay1| pp2Ready[0]),
   .iWr(rWrWay1Tag),
   .iAddr(rAddrWay1),
   .iData(rWrDataWay1Tag),
@@ -483,7 +493,7 @@ ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way1_tag_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way2_tag_ram (
   .clk(clk),
-  .iEnable(rEnWay2),
+  .iEnable(rEnWay2| pp2Ready[0]),
   .iWr(rWrWay2Tag),
   .iAddr(rAddrWay2),
   .iData(rWrDataWay2Tag),
@@ -491,7 +501,7 @@ ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way2_tag_ram (
 );
 ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way3_tag_ram (
   .clk(clk),
-  .iEnable(rEnWay3),
+  .iEnable(rEnWay3| pp2Ready[0]),
   .iWr(rWrWay3Tag),
   .iAddr(rAddrWay3),
   .iData(rWrDataWay3Tag),
