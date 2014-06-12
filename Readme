@@ -1,3 +1,5 @@
 Here is the cache IP development depot.
 * Jun.12.2014
   Finish the Pseudo LRU cache RTL
+  Add the write hit scenario
+  Add the write missing scenario

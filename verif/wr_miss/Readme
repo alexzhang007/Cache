@@ -1,0 +1,2 @@
+1. write miss scenario testing
+   Way0 is valid, new write request will go to Way1 entries (including data and tag mem). Then same address read request arrive, hit. 
