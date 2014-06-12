@@ -62,7 +62,7 @@ reg  [`INDEX_W-1:0] rAddrWay2;
 reg                 rEnWay3;       
 reg  [`INDEX_W-1:0] rAddrWay3;     
 reg                 rEnLRU;        
-reg                 rAddrLRU;      
+reg  [`INDEX_W-1:0] rAddrLRU;      
 reg                 rHit0;         
 reg                 rHit1;         
 reg                 rHit2;         
@@ -155,7 +155,7 @@ always @(posedge clk or negedge resetn) begin
         rAddrWay2     <= rIndex;
         rEnWay3       <= iRd | iWr ; 
         rAddrWay3     <= rIndex;
-        rEnLRU        <= iRd | iWr | pp2LRU_Ready;
+        rEnLRU        <= iRd | iWr | pp1LRU_Ready;
         rAddrLRU      <= rIndex;
         rHit0         <= (pp1LRU_Ready & (wDataWay0Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay0Tag[0]) ? 1'b1 : 1'b0;
         rHit1         <= (pp1LRU_Ready & (wDataWay1Tag[`TAG_W+1-1:1] == ppTag ) & wDataWay1Tag[0]) ? 1'b1 : 1'b0;
@@ -511,7 +511,7 @@ ssram #(.AW(`INDEX_W), .DW(`TAG_W+1) ) way3_tag_ram (
 ssram #(.AW(`INDEX_W), .DW(8)) pseudo_LRU_ram(
   .clk(clk),
   .iEnable(rEnLRU),
-  .iWr(rWrLRU),
+  .iWr(rWrLRU | (wMiss & pp2LRU_Ready)),
   .iAddr(rAddrLRU),
   .iData(rDataLRUIn),
   .oData(rDataLRUOut)

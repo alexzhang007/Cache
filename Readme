@@ -3,3 +3,4 @@ Here is the cache IP development depot.
   Finish the Pseudo LRU cache RTL
   Add the write hit scenario
   Add the write missing scenario
+  Add the write msssing using LRU replacement
