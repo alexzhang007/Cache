@@ -4,3 +4,5 @@ Here is the cache IP development depot.
   Add the write hit scenario
   Add the write missing scenario
   Add the write msssing using LRU replacement
+* Oct.16.2014
+  Update new version cache.

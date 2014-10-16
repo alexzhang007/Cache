@@ -14,20 +14,20 @@
 //              * multiwords cache line: 512 bits and 256 entries.
 //              * write-back policy: 
 //              * LRU replacement rule: 
-`include "cache_define.v"
+`include "cache_define.vh"
 module cache_4ways (
-input         cclk,
-input         cresetn,
-input  [31:0] req_address,
-input  [31:0] req_data,
-input  [1:0]  req_op,       //2'b01 - read req, 2'b10 - write req, 2'b11 - fill req 
-input         req_last,     //When it is fill req, req_last to indicate the last data.
-input         req_valid,
-output        ack_hit,
-output        ack_valid,
-output [1:0]  ack_type,     //2'b11 - write-back; 2'b01 - read ack; 2'b10 - write ack ; 2'b00 - fetch memory
-output [31:0] ack_data,
-output        ack_last      //When block is needed to be write-back, ack is the last data.
+input             cclk,
+input             cresetn,
+input      [31:0] req_address,
+input      [31:0] req_data,
+input      [1:0]  req_op,       //2'b01 - read req, 2'b10 - write req, 2'b11 - fill req 
+input             req_last,     //When it is fill req, req_last to indicate the last data.
+input             req_valid,
+output reg        ack_hit,
+output reg        ack_valid,
+output reg [1:0]  ack_type,     //2'b11 - write-back; 2'b01 - read ack; 2'b10 - write ack ; 2'b00 - fetch memory
+output reg [31:0] ack_data,
+output reg        ack_last      //When block is needed to be write-back, ack is the last data.
 );
 ///Stage 0 
 wire [`CA_TAG_W-1:0]   req_tag = req_valid && (req_op==2'b01 || req_op==2'b10)? req_address[`CA_TAG_R] : 0;
@@ -35,9 +35,6 @@ wire [`CA_INDEX_W-1:0] req_index = req_valid && (req_op==2'b01 || req_op==2'b10)
 wire [`CA_BLOCK_W-1:0] req_block = req_valid && (req_op==2'b01 || req_op==2'b10) ? req_address[`CA_BLOCK_R] : 0;
 wire                   fetch_resp = req_valid ? req_op== 2'b11 : 1'b0;
 wire                   fetch_resp_last = req_valid & req_op==2'b11 & req_last;
-wire rd_cs_set1 = 1; 
-wire rd_cs_set2 = 1; 
-wire rd_cs_set3 = 1; 
 wire wr_cs_set0 = 1; 
 wire wr_cs_set1 = 1; 
 wire wr_cs_set2 = 1; 
@@ -54,7 +51,7 @@ wire                   rd_cs_set1   = req_valid;
 wire                   rd_we_set2   = ~req_valid;
 wire                   rd_cs_set2   = req_valid;
 wire                   rd_we_set3   = ~req_valid;
-wire                   rd_cs_set4   = req_valid;
+wire                   rd_cs_set3   = req_valid;
 wire [`TR_TAG_W-1:0]   tr_tag_out0, tr_tag_out1, tr_tag_out2, tr_tag_out3;
 wire [`TR_LRU_W-1:0]   tr_lru_out0, tr_lru_out1, tr_lru_out2, tr_lru_out3;
 wire [`TR_DIRTY_W-1:0] tr_dirty_out0, tr_dirty_out1, tr_dirty_out2, tr_dirty_out3;
@@ -68,9 +65,10 @@ ffd_posedge_async_reset#(`CA_TAG_W) stage0_tag_reg (.clk(cclk), .resetn(cresetn)
 wire [`CA_BLOCK_W-1:0] req_block_p0;
 ffd_posedge_async_reset#(`CA_BLOCK_W) stage0_block_reg (.clk(cclk), .resetn(cresetn), .D(req_block), .Q(req_block_p0));
 wire [31:0]            req_data_p0;
-ffd_posedge_async_reset#(`CA_BLOCK_W) stage0_data_reg (.clk(cclk), .resetn(cresetn), .D(req_data), .Q(req_data_p0));
+ffd_posedge_async_reset#(32) stage0_data_reg (.clk(cclk), .resetn(cresetn), .D(req_data), .Q(req_data_p0));
 
 //Stage 1
+wire [`TR_LINE_N-1:0]  rd_tag_set0, rd_tag_set1, rd_tag_set2, rd_tag_set3;
 reg  [`TR_LINE_N-1:0] tr_data_in0, tr_data_in1, tr_data_in2, tr_data3; 
 assign {tr_tag_out0, tr_lru_out0, tr_dirty_out0, tr_valid_out0} = rd_tag_set0;
 assign {tr_tag_out1, tr_lru_out1, tr_dirty_out1, tr_valid_out1} = rd_tag_set1;
@@ -89,86 +87,87 @@ always @(*) begin
     4'b??01 : tr_fill_set = 4'b0010;
     4'b?011 : tr_fill_set = 4'b0100;
     4'b0111 : tr_fill_set = 4'b1000;
-    default : tr_file_set = 4'b0000;
+    default : tr_fill_set = 4'b0000;
   endcase
 end 
 
 reg  [`CACHE_LINE_N-1:0] dr_data_in0, dr_data_in1, dr_data_in2, dr_data_in3;
+wire [`CACHE_LINE_N-1:0] rd_data_set0, rd_data_set1, rd_data_set2, rd_data_set3;
 always @(*) begin 
   case (req_block_p0)
-    4'b0000 : dr_data_in0 = rd_data_set0[0  :+ 32] |req_data_p0; 
-    4'b0001 : dr_data_in0 = rd_data_set0[32 :+ 32] |req_data_p0; 
-    4'b0010 : dr_data_in0 = rd_data_set0[64 :+ 32] |req_data_p0; 
-    4'b0011 : dr_data_in0 = rd_data_set0[96 :+ 32] |req_data_p0; 
-    4'b0100 : dr_data_in0 = rd_data_set0[128:+ 32] |req_data_p0; 
-    4'b0101 : dr_data_in0 = rd_data_set0[160:+ 32] |req_data_p0; 
-    4'b0110 : dr_data_in0 = rd_data_set0[192:+ 32] |req_data_p0; 
-    4'b0111 : dr_data_in0 = rd_data_set0[224:+ 32] |req_data_p0; 
-    4'b1000 : dr_data_in0 = rd_data_set0[256:+ 32] |req_data_p0; 
-    4'b1001 : dr_data_in0 = rd_data_set0[288:+ 32] |req_data_p0; 
-    4'b1010 : dr_data_in0 = rd_data_set0[320:+ 32] |req_data_p0; 
-    4'b1011 : dr_data_in0 = rd_data_set0[352:+ 32] |req_data_p0; 
-    4'b1100 : dr_data_in0 = rd_data_set0[384:+ 32] |req_data_p0; 
-    4'b1101 : dr_data_in0 = rd_data_set0[416:+ 32] |req_data_p0; 
-    4'b1110 : dr_data_in0 = rd_data_set0[448:+ 32] |req_data_p0; 
-    4'b1111 : dr_data_in0 = rd_data_set0[480:+ 32] |req_data_p0; 
+    4'b0000 : dr_data_in0 = rd_data_set0[0  +: 32] |req_data_p0; 
+    4'b0001 : dr_data_in0 = rd_data_set0[32 +: 32] |req_data_p0; 
+    4'b0010 : dr_data_in0 = rd_data_set0[64 +: 32] |req_data_p0; 
+    4'b0011 : dr_data_in0 = rd_data_set0[96 +: 32] |req_data_p0; 
+    4'b0100 : dr_data_in0 = rd_data_set0[128+: 32] |req_data_p0; 
+    4'b0101 : dr_data_in0 = rd_data_set0[160+: 32] |req_data_p0; 
+    4'b0110 : dr_data_in0 = rd_data_set0[192+: 32] |req_data_p0; 
+    4'b0111 : dr_data_in0 = rd_data_set0[224+: 32] |req_data_p0; 
+    4'b1000 : dr_data_in0 = rd_data_set0[256+: 32] |req_data_p0; 
+    4'b1001 : dr_data_in0 = rd_data_set0[288+: 32] |req_data_p0; 
+    4'b1010 : dr_data_in0 = rd_data_set0[320+: 32] |req_data_p0; 
+    4'b1011 : dr_data_in0 = rd_data_set0[352+: 32] |req_data_p0; 
+    4'b1100 : dr_data_in0 = rd_data_set0[384+: 32] |req_data_p0; 
+    4'b1101 : dr_data_in0 = rd_data_set0[416+: 32] |req_data_p0; 
+    4'b1110 : dr_data_in0 = rd_data_set0[448+: 32] |req_data_p0; 
+    4'b1111 : dr_data_in0 = rd_data_set0[480+: 32] |req_data_p0; 
     default : dr_data_in0 = rd_data_set0 ;
   endcase 
   case (req_block_p0)
-    4'b0000 : dr_data_in1 = rd_data_set1[0  :+ 32] |req_data_p0; 
-    4'b0001 : dr_data_in1 = rd_data_set1[32 :+ 32] |req_data_p0; 
-    4'b0010 : dr_data_in1 = rd_data_set1[64 :+ 32] |req_data_p0; 
-    4'b0011 : dr_data_in1 = rd_data_set1[96 :+ 32] |req_data_p0; 
-    4'b0100 : dr_data_in1 = rd_data_set1[128:+ 32] |req_data_p0; 
-    4'b0101 : dr_data_in1 = rd_data_set1[160:+ 32] |req_data_p0; 
-    4'b0110 : dr_data_in1 = rd_data_set1[192:+ 32] |req_data_p0; 
-    4'b0111 : dr_data_in1 = rd_data_set1[224:+ 32] |req_data_p0; 
-    4'b1000 : dr_data_in1 = rd_data_set1[256:+ 32] |req_data_p0; 
-    4'b1001 : dr_data_in1 = rd_data_set1[288:+ 32] |req_data_p0; 
-    4'b1010 : dr_data_in1 = rd_data_set1[320:+ 32] |req_data_p0; 
-    4'b1011 : dr_data_in1 = rd_data_set1[352:+ 32] |req_data_p0; 
-    4'b1100 : dr_data_in1 = rd_data_set1[384:+ 32] |req_data_p0; 
-    4'b1101 : dr_data_in1 = rd_data_set1[416:+ 32] |req_data_p0; 
-    4'b1110 : dr_data_in1 = rd_data_set1[448:+ 32] |req_data_p0; 
-    4'b1111 : dr_data_in1 = rd_data_set1[480:+ 32] |req_data_p0; 
+    4'b0000 : dr_data_in1 = rd_data_set1[0  +: 32] |req_data_p0; 
+    4'b0001 : dr_data_in1 = rd_data_set1[32 +: 32] |req_data_p0; 
+    4'b0010 : dr_data_in1 = rd_data_set1[64 +: 32] |req_data_p0; 
+    4'b0011 : dr_data_in1 = rd_data_set1[96 +: 32] |req_data_p0; 
+    4'b0100 : dr_data_in1 = rd_data_set1[128+: 32] |req_data_p0; 
+    4'b0101 : dr_data_in1 = rd_data_set1[160+: 32] |req_data_p0; 
+    4'b0110 : dr_data_in1 = rd_data_set1[192+: 32] |req_data_p0; 
+    4'b0111 : dr_data_in1 = rd_data_set1[224+: 32] |req_data_p0; 
+    4'b1000 : dr_data_in1 = rd_data_set1[256+: 32] |req_data_p0; 
+    4'b1001 : dr_data_in1 = rd_data_set1[288+: 32] |req_data_p0; 
+    4'b1010 : dr_data_in1 = rd_data_set1[320+: 32] |req_data_p0; 
+    4'b1011 : dr_data_in1 = rd_data_set1[352+: 32] |req_data_p0; 
+    4'b1100 : dr_data_in1 = rd_data_set1[384+: 32] |req_data_p0; 
+    4'b1101 : dr_data_in1 = rd_data_set1[416+: 32] |req_data_p0; 
+    4'b1110 : dr_data_in1 = rd_data_set1[448+: 32] |req_data_p0; 
+    4'b1111 : dr_data_in1 = rd_data_set1[480+: 32] |req_data_p0; 
     default : dr_data_in1 = rd_data_set1 ;
   endcase 
   case (req_block_p0)
-    4'b0000 : dr_data_in2 = rd_data_set2[0  :+ 32] |req_data_p0; 
-    4'b0001 : dr_data_in2 = rd_data_set2[32 :+ 32] |req_data_p0; 
-    4'b0010 : dr_data_in2 = rd_data_set2[64 :+ 32] |req_data_p0; 
-    4'b0011 : dr_data_in2 = rd_data_set2[96 :+ 32] |req_data_p0; 
-    4'b0100 : dr_data_in2 = rd_data_set2[128:+ 32] |req_data_p0; 
-    4'b0101 : dr_data_in2 = rd_data_set2[160:+ 32] |req_data_p0; 
-    4'b0110 : dr_data_in2 = rd_data_set2[192:+ 32] |req_data_p0; 
-    4'b0111 : dr_data_in2 = rd_data_set2[224:+ 32] |req_data_p0; 
-    4'b1000 : dr_data_in2 = rd_data_set2[256:+ 32] |req_data_p0; 
-    4'b1001 : dr_data_in2 = rd_data_set2[288:+ 32] |req_data_p0; 
-    4'b1010 : dr_data_in2 = rd_data_set2[320:+ 32] |req_data_p0; 
-    4'b1011 : dr_data_in2 = rd_data_set2[352:+ 32] |req_data_p0; 
-    4'b1100 : dr_data_in2 = rd_data_set2[384:+ 32] |req_data_p0; 
-    4'b1101 : dr_data_in2 = rd_data_set2[416:+ 32] |req_data_p0; 
-    4'b1110 : dr_data_in2 = rd_data_set2[448:+ 32] |req_data_p0; 
-    4'b1111 : dr_data_in2 = rd_data_set2[480:+ 32] |req_data_p0; 
+    4'b0000 : dr_data_in2 = rd_data_set2[0  +: 32] |req_data_p0; 
+    4'b0001 : dr_data_in2 = rd_data_set2[32 +: 32] |req_data_p0; 
+    4'b0010 : dr_data_in2 = rd_data_set2[64 +: 32] |req_data_p0; 
+    4'b0011 : dr_data_in2 = rd_data_set2[96 +: 32] |req_data_p0; 
+    4'b0100 : dr_data_in2 = rd_data_set2[128+: 32] |req_data_p0; 
+    4'b0101 : dr_data_in2 = rd_data_set2[160+: 32] |req_data_p0; 
+    4'b0110 : dr_data_in2 = rd_data_set2[192+: 32] |req_data_p0; 
+    4'b0111 : dr_data_in2 = rd_data_set2[224+: 32] |req_data_p0; 
+    4'b1000 : dr_data_in2 = rd_data_set2[256+: 32] |req_data_p0; 
+    4'b1001 : dr_data_in2 = rd_data_set2[288+: 32] |req_data_p0; 
+    4'b1010 : dr_data_in2 = rd_data_set2[320+: 32] |req_data_p0; 
+    4'b1011 : dr_data_in2 = rd_data_set2[352+: 32] |req_data_p0; 
+    4'b1100 : dr_data_in2 = rd_data_set2[384+: 32] |req_data_p0; 
+    4'b1101 : dr_data_in2 = rd_data_set2[416+: 32] |req_data_p0; 
+    4'b1110 : dr_data_in2 = rd_data_set2[448+: 32] |req_data_p0; 
+    4'b1111 : dr_data_in2 = rd_data_set2[480+: 32] |req_data_p0; 
     default : dr_data_in2 = rd_data_set2 ;
   endcase 
   case (req_block_p0)
-    4'b0000 : dr_data_in3 = rd_data_set3[0  :+ 32] |req_data_p0; 
-    4'b0001 : dr_data_in3 = rd_data_set3[32 :+ 32] |req_data_p0; 
-    4'b0010 : dr_data_in3 = rd_data_set3[64 :+ 32] |req_data_p0; 
-    4'b0011 : dr_data_in3 = rd_data_set3[96 :+ 32] |req_data_p0; 
-    4'b0100 : dr_data_in3 = rd_data_set3[128:+ 32] |req_data_p0; 
-    4'b0101 : dr_data_in3 = rd_data_set3[160:+ 32] |req_data_p0; 
-    4'b0110 : dr_data_in3 = rd_data_set3[192:+ 32] |req_data_p0; 
-    4'b0111 : dr_data_in3 = rd_data_set3[224:+ 32] |req_data_p0; 
-    4'b1000 : dr_data_in3 = rd_data_set3[256:+ 32] |req_data_p0; 
-    4'b1001 : dr_data_in3 = rd_data_set3[288:+ 32] |req_data_p0; 
-    4'b1010 : dr_data_in3 = rd_data_set3[320:+ 32] |req_data_p0; 
-    4'b1011 : dr_data_in3 = rd_data_set3[352:+ 32] |req_data_p0; 
-    4'b1100 : dr_data_in3 = rd_data_set3[384:+ 32] |req_data_p0; 
-    4'b1101 : dr_data_in3 = rd_data_set3[416:+ 32] |req_data_p0; 
-    4'b1110 : dr_data_in3 = rd_data_set3[448:+ 32] |req_data_p0; 
-    4'b1111 : dr_data_in3 = rd_data_set3[480:+ 32] |req_data_p0; 
+    4'b0000 : dr_data_in3 = rd_data_set3[0  +: 32] |req_data_p0; 
+    4'b0001 : dr_data_in3 = rd_data_set3[32 +: 32] |req_data_p0; 
+    4'b0010 : dr_data_in3 = rd_data_set3[64 +: 32] |req_data_p0; 
+    4'b0011 : dr_data_in3 = rd_data_set3[96 +: 32] |req_data_p0; 
+    4'b0100 : dr_data_in3 = rd_data_set3[128+: 32] |req_data_p0; 
+    4'b0101 : dr_data_in3 = rd_data_set3[160+: 32] |req_data_p0; 
+    4'b0110 : dr_data_in3 = rd_data_set3[192+: 32] |req_data_p0; 
+    4'b0111 : dr_data_in3 = rd_data_set3[224+: 32] |req_data_p0; 
+    4'b1000 : dr_data_in3 = rd_data_set3[256+: 32] |req_data_p0; 
+    4'b1001 : dr_data_in3 = rd_data_set3[288+: 32] |req_data_p0; 
+    4'b1010 : dr_data_in3 = rd_data_set3[320+: 32] |req_data_p0; 
+    4'b1011 : dr_data_in3 = rd_data_set3[352+: 32] |req_data_p0; 
+    4'b1100 : dr_data_in3 = rd_data_set3[384+: 32] |req_data_p0; 
+    4'b1101 : dr_data_in3 = rd_data_set3[416+: 32] |req_data_p0; 
+    4'b1110 : dr_data_in3 = rd_data_set3[448+: 32] |req_data_p0; 
+    4'b1111 : dr_data_in3 = rd_data_set3[480+: 32] |req_data_p0; 
     default : dr_data_in3 = rd_data_set3 ;
   endcase 
 end 
@@ -176,89 +175,92 @@ end
 reg [31:0] dr_data_out0, dr_data_out1, dr_data_out2, dr_data_out3;
 always @(*) begin 
   case (req_block_p0)
-    4'b0000 : dr_data_out0 = rd_data_set0[0 :+32];
-    4'b0001 : dr_data_out0 = rd_data_set0[32:+32];
-    4'b0010 : dr_data_out0 = rd_data_set0[64:+32];
-    4'b0011 : dr_data_out0 = rd_data_set0[96:+32];
-    4'b0100 : dr_data_out0 = rd_data_set0[128:+32];
-    4'b0101 : dr_data_out0 = rd_data_set0[160:+32];
-    4'b0110 : dr_data_out0 = rd_data_set0[192:+32];
-    4'b0111 : dr_data_out0 = rd_data_set0[224:+32];
-    4'b1000 : dr_data_out0 = rd_data_set0[256:+32];
-    4'b1001 : dr_data_out0 = rd_data_set0[288:+32];
-    4'b1010 : dr_data_out0 = rd_data_set0[320:+32];
-    4'b1011 : dr_data_out0 = rd_data_set0[352:+32];
-    4'b1100 : dr_data_out0 = rd_data_set0[384:+32];
-    4'b1101 : dr_data_out0 = rd_data_set0[416:+32];
-    4'b1110 : dr_data_out0 = rd_data_set0[448:+32];
-    4'b1111 : dr_data_out0 = rd_data_set0[480:+32];
+    4'b0000 : dr_data_out0 = rd_data_set0[0  +:32];
+    4'b0001 : dr_data_out0 = rd_data_set0[32 +:32];
+    4'b0010 : dr_data_out0 = rd_data_set0[64 +:32];
+    4'b0011 : dr_data_out0 = rd_data_set0[96 +:32];
+    4'b0100 : dr_data_out0 = rd_data_set0[128+:32];
+    4'b0101 : dr_data_out0 = rd_data_set0[160+:32];
+    4'b0110 : dr_data_out0 = rd_data_set0[192+:32];
+    4'b0111 : dr_data_out0 = rd_data_set0[224+:32];
+    4'b1000 : dr_data_out0 = rd_data_set0[256+:32];
+    4'b1001 : dr_data_out0 = rd_data_set0[288+:32];
+    4'b1010 : dr_data_out0 = rd_data_set0[320+:32];
+    4'b1011 : dr_data_out0 = rd_data_set0[352+:32];
+    4'b1100 : dr_data_out0 = rd_data_set0[384+:32];
+    4'b1101 : dr_data_out0 = rd_data_set0[416+:32];
+    4'b1110 : dr_data_out0 = rd_data_set0[448+:32];
+    4'b1111 : dr_data_out0 = rd_data_set0[480+:32];
     default : dr_data_out0 = 32'bx;
   endcase
   case (req_block_p0)
-    4'b0000 : dr_data_out1 = rd_data_set1[0 :+32];
-    4'b0001 : dr_data_out1 = rd_data_set1[32:+32];
-    4'b0010 : dr_data_out1 = rd_data_set1[64:+32];
-    4'b0011 : dr_data_out1 = rd_data_set1[96:+32];
-    4'b0100 : dr_data_out1 = rd_data_set1[128:+32];
-    4'b0101 : dr_data_out1 = rd_data_set1[160:+32];
-    4'b0110 : dr_data_out1 = rd_data_set1[192:+32];
-    4'b0111 : dr_data_out1 = rd_data_set1[224:+32];
-    4'b1000 : dr_data_out1 = rd_data_set1[256:+32];
-    4'b1001 : dr_data_out1 = rd_data_set1[288:+32];
-    4'b1010 : dr_data_out1 = rd_data_set1[320:+32];
-    4'b1011 : dr_data_out1 = rd_data_set1[352:+32];
-    4'b1100 : dr_data_out1 = rd_data_set1[384:+32];
-    4'b1101 : dr_data_out1 = rd_data_set1[416:+32];
-    4'b1110 : dr_data_out1 = rd_data_set1[448:+32];
-    4'b1111 : dr_data_out1 = rd_data_set1[480:+32];
+    4'b0000 : dr_data_out1 = rd_data_set1[0  +:32];
+    4'b0001 : dr_data_out1 = rd_data_set1[32 +:32];
+    4'b0010 : dr_data_out1 = rd_data_set1[64 +:32];
+    4'b0011 : dr_data_out1 = rd_data_set1[96 +:32];
+    4'b0100 : dr_data_out1 = rd_data_set1[128+:32];
+    4'b0101 : dr_data_out1 = rd_data_set1[160+:32];
+    4'b0110 : dr_data_out1 = rd_data_set1[192+:32];
+    4'b0111 : dr_data_out1 = rd_data_set1[224+:32];
+    4'b1000 : dr_data_out1 = rd_data_set1[256+:32];
+    4'b1001 : dr_data_out1 = rd_data_set1[288+:32];
+    4'b1010 : dr_data_out1 = rd_data_set1[320+:32];
+    4'b1011 : dr_data_out1 = rd_data_set1[352+:32];
+    4'b1100 : dr_data_out1 = rd_data_set1[384+:32];
+    4'b1101 : dr_data_out1 = rd_data_set1[416+:32];
+    4'b1110 : dr_data_out1 = rd_data_set1[448+:32];
+    4'b1111 : dr_data_out1 = rd_data_set1[480+:32];
     default : dr_data_out1 = 32'bx;
   endcase
   case (req_block_p0)
-    4'b0000 : dr_data_out2 = rd_data_set2[0 :+32];
-    4'b0001 : dr_data_out2 = rd_data_set2[32:+32];
-    4'b0010 : dr_data_out2 = rd_data_set2[64:+32];
-    4'b0011 : dr_data_out2 = rd_data_set2[96:+32];
-    4'b0100 : dr_data_out2 = rd_data_set2[128:+32];
-    4'b0101 : dr_data_out2 = rd_data_set2[160:+32];
-    4'b0110 : dr_data_out2 = rd_data_set2[192:+32];
-    4'b0111 : dr_data_out2 = rd_data_set2[224:+32];
-    4'b1000 : dr_data_out2 = rd_data_set2[256:+32];
-    4'b1001 : dr_data_out2 = rd_data_set2[288:+32];
-    4'b1010 : dr_data_out2 = rd_data_set2[320:+32];
-    4'b1011 : dr_data_out2 = rd_data_set2[352:+32];
-    4'b1100 : dr_data_out2 = rd_data_set2[384:+32];
-    4'b1101 : dr_data_out2 = rd_data_set2[416:+32];
-    4'b1110 : dr_data_out2 = rd_data_set2[448:+32];
-    4'b1111 : dr_data_out2 = rd_data_set2[480:+32];
+    4'b0000 : dr_data_out2 = rd_data_set2[0  +:32];
+    4'b0001 : dr_data_out2 = rd_data_set2[32 +:32];
+    4'b0010 : dr_data_out2 = rd_data_set2[64 +:32];
+    4'b0011 : dr_data_out2 = rd_data_set2[96 +:32];
+    4'b0100 : dr_data_out2 = rd_data_set2[128+:32];
+    4'b0101 : dr_data_out2 = rd_data_set2[160+:32];
+    4'b0110 : dr_data_out2 = rd_data_set2[192+:32];
+    4'b0111 : dr_data_out2 = rd_data_set2[224+:32];
+    4'b1000 : dr_data_out2 = rd_data_set2[256+:32];
+    4'b1001 : dr_data_out2 = rd_data_set2[288+:32];
+    4'b1010 : dr_data_out2 = rd_data_set2[320+:32];
+    4'b1011 : dr_data_out2 = rd_data_set2[352+:32];
+    4'b1100 : dr_data_out2 = rd_data_set2[384+:32];
+    4'b1101 : dr_data_out2 = rd_data_set2[416+:32];
+    4'b1110 : dr_data_out2 = rd_data_set2[448+:32];
+    4'b1111 : dr_data_out2 = rd_data_set2[480+:32];
     default : dr_data_out2 = 32'bx;
   endcase
   case (req_block_p0)
-    4'b0000 : dr_data_out3 = rd_data_set3[0 :+32];
-    4'b0001 : dr_data_out3 = rd_data_set3[32:+32];
-    4'b0010 : dr_data_out3 = rd_data_set3[64:+32];
-    4'b0011 : dr_data_out3 = rd_data_set3[96:+32];
-    4'b0100 : dr_data_out3 = rd_data_set3[128:+32];
-    4'b0101 : dr_data_out3 = rd_data_set3[160:+32];
-    4'b0110 : dr_data_out3 = rd_data_set3[192:+32];
-    4'b0111 : dr_data_out3 = rd_data_set3[224:+32];
-    4'b1000 : dr_data_out3 = rd_data_set3[256:+32];
-    4'b1001 : dr_data_out3 = rd_data_set3[288:+32];
-    4'b1010 : dr_data_out3 = rd_data_set3[320:+32];
-    4'b1011 : dr_data_out3 = rd_data_set3[352:+32];
-    4'b1100 : dr_data_out3 = rd_data_set3[384:+32];
-    4'b1101 : dr_data_out3 = rd_data_set3[416:+32];
-    4'b1110 : dr_data_out3 = rd_data_set3[448:+32];
-    4'b1111 : dr_data_out3 = rd_data_set3[480:+32];
+    4'b0000 : dr_data_out3 = rd_data_set3[0  +:32];
+    4'b0001 : dr_data_out3 = rd_data_set3[32 +:32];
+    4'b0010 : dr_data_out3 = rd_data_set3[64 +:32];
+    4'b0011 : dr_data_out3 = rd_data_set3[96 +:32];
+    4'b0100 : dr_data_out3 = rd_data_set3[128+:32];
+    4'b0101 : dr_data_out3 = rd_data_set3[160+:32];
+    4'b0110 : dr_data_out3 = rd_data_set3[192+:32];
+    4'b0111 : dr_data_out3 = rd_data_set3[224+:32];
+    4'b1000 : dr_data_out3 = rd_data_set3[256+:32];
+    4'b1001 : dr_data_out3 = rd_data_set3[288+:32];
+    4'b1010 : dr_data_out3 = rd_data_set3[320+:32];
+    4'b1011 : dr_data_out3 = rd_data_set3[352+:32];
+    4'b1100 : dr_data_out3 = rd_data_set3[384+:32];
+    4'b1101 : dr_data_out3 = rd_data_set3[416+:32];
+    4'b1110 : dr_data_out3 = rd_data_set3[448+:32];
+    4'b1111 : dr_data_out3 = rd_data_set3[480+:32];
     default : dr_data_out3 = 32'bx;
   endcase
 end 
 
+reg tr_dirty_in0, tr_dirty_in1, tr_dirty_in2, tr_dirty_in3;
+reg [1:0] tr_lru_in0, tr_lru_in1, tr_lru_in2, tr_lru_in3;
 wire hit_set0 = (tr_tag_out0 == req_tag_p0) & tr_valid_out0;
-wire hit_set1 = (tr_tag_out1 == req_tag_p1) & tr_valid_out1;
-wire hit_set2 = (tr_tag_out2 == req_tag_p2) & tr_valid_out2;
-wire hit_set3 = (tr_tag_out3 == req_tag_p3) & tr_valid_out3;
+wire hit_set1 = (tr_tag_out1 == req_tag_p0) & tr_valid_out1;
+wire hit_set2 = (tr_tag_out2 == req_tag_p0) & tr_valid_out2;
+wire hit_set3 = (tr_tag_out3 == req_tag_p0) & tr_valid_out3;
 
 assign hit = hit_set0 | hit_set1 | hit_set2 | hit_set3;
+
 always @(*) begin  
   if (hit_set0 | tr_fill_set[0]) begin
     tr_dirty_in0 = 1'b1;  //FIXME: Only the write request needs to update the dirty bit.
@@ -363,7 +365,7 @@ ffd_posedge_async_reset#(32) stage1_dr_data_out1_reg (.clk(cclk), .resetn(creset
 ffd_posedge_async_reset#(32) stage1_dr_data_out2_reg (.clk(cclk), .resetn(cresetn), .D(dr_data_out2), .Q(dr_data_out2_p1));
 ffd_posedge_async_reset#(32) stage1_dr_data_out3_reg (.clk(cclk), .resetn(cresetn), .D(dr_data_out3), .Q(dr_data_out3_p1));
 wire [3:0] hit_p1; //FIXME : Write assertion to make sure the hit_p1 is one hot. 
-ffd_posedge_async_reset#(4) stage1_dr_data_out3_reg (.clk(cclk), .resetn(cresetn), .D({hit_set3, hit_set2, hit_set1, hit_set0}), .Q(hit_p1));
+ffd_posedge_async_reset#(4) stage1_hit_reg (.clk(cclk), .resetn(cresetn), .D({hit_set3, hit_set2, hit_set1, hit_set0}), .Q(hit_p1));
 reg [31:0] hit_dr_data_out;
 always @(*) begin 
   case (hit_p1)
@@ -375,7 +377,6 @@ always @(*) begin
   endcase 
 end  
 //Stage 3
-
 //request access FSM
 parameter RA_IDLE = 0,
           RA_DIRECT_HIT  = 1, //request access directly hit
@@ -513,6 +514,7 @@ always @(posedge cclk or negedge cresetn)
       RA_FETCH_STALL : begin 
         if (fetch_resp)
           dr_data_in <= dr_data_in << 32 | req_data; 
+      end 
       RA_REPLACE : begin 
 
       end 
@@ -529,6 +531,9 @@ always @(posedge cclk or negedge cresetn)
     endcase
   end 
 
+wire [`CA_INDEX_W-1:0] wr_addr_set0, wr_addr_set1, wr_addr_set2, wr_addr_set3;
+wire [`CACHE_LINE_N-1:0] wr_data_set0, wr_data_set1, wr_data_set2, wr_data_set3;
+wire [`TR_LINE_N-1:0] wr_tag_set0, wr_tag_set1, wr_tag_set2, wr_tag_set3;
 assign wr_data_set0 = wr_dr_set0 ? dr_data_in0 : tr_fill_set[0] ? dr_data_in : 512'bx;
 assign wr_data_set1 = wr_dr_set1 ? dr_data_in1 : tr_fill_set[1] ? dr_data_in : 512'bx;
 assign wr_data_set2 = wr_dr_set2 ? dr_data_in2 : tr_fill_set[2] ? dr_data_in : 512'bx;
@@ -545,6 +550,10 @@ assign wr_we_set0   = wr_tr_set0 | (tr_fill_set[0] & wr_dr_tr);
 assign wr_we_set1   = wr_tr_set1 | (tr_fill_set[1] & wr_dr_tr);
 assign wr_we_set2   = wr_tr_set2 | (tr_fill_set[2] & wr_dr_tr);
 assign wr_we_set3   = wr_tr_set3 | (tr_fill_set[3] & wr_dr_tr);
+assign wr_addr_set0 = req_index; //FIXME : Need to correct it.
+assign wr_addr_set1 = req_index;
+assign wr_addr_set2 = req_index;
+assign wr_addr_set3 = req_index;
 
 
 //Using the dual-port ram, it is to support he write and read in parallel.
@@ -600,6 +609,7 @@ ram_dp_sr_sw #(.DATA_WIDTH(`CACHE_LINE_N), .ADDR_WIDTH(`CACHE_DEPTH_W)) data_ram
   .we_1      (rd_we_set3),
   .oe_1      (1'b1)
 );
+
 
 //Tag Ram 
 ram_dp_sr_sw #(.DATA_WIDTH(`TR_LINE_N), .ADDR_WIDTH(`CACHE_DEPTH_W)) tag_ram_set0 (
